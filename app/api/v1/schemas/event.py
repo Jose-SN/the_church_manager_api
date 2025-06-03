@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel, Field
+from app.models.pyobjectid import PyObjectId
 
 class EventBase(BaseModel):
     title: str = Field(..., description="Title of the event")
@@ -24,15 +25,19 @@ class EventUpdate(BaseModel):
     ended: Optional[bool] = None
 
 class EventInDBBase(EventBase):
-    id: int
-    created_by: int
-    created_at: datetime
-    updated_at: datetime
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    created_by: Optional[PyObjectId] = Field(None, description="User ID of the event creator") # Assuming created_by can be optional or system-generated
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    modification_date: Optional[datetime] = None
 
     class Config:
-        orm_mode = True
+        json_encoders = {ObjectId: str}
+        populate_by_name = True # Allows using alias '_id' during initialization
+        arbitrary_types_allowed = True # Necessary for PyObjectId
 
 class Event(EventInDBBase):
+    # Inherits fields from EventInDBBase and EventBase
+    # Add any additional fields specific to the Event response model here, if any
     pass
 
 class EventFilter(BaseModel):

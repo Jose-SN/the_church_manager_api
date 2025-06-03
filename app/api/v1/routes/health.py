@@ -5,7 +5,7 @@ from typing import Dict
 router = APIRouter()
 
 @router.get("/health", tags=["health"])
-async def health_check():
+def health_check():
     """
     Check the health status of the application.
     """

@@ -2,7 +2,8 @@ from datetime import datetime
 from typing import List, Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from pymongo.database import Database
+from bson import ObjectId
 
 from app.schemas.event import Event, EventCreate, EventUpdate, EventFilter, EventEnd
 from app.services.event_service import EventService
@@ -12,10 +13,10 @@ from app.models.user import UserInDB
 router = APIRouter(prefix="/events", tags=["Events"])
 
 @router.post("", response_model=Event, status_code=status.HTTP_201_CREATED)
-async def create_event(
+def create_event(
     event_in: EventCreate,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)
 ) -> Any:
     """
     Create a new event
@@ -23,15 +24,15 @@ async def create_event(
     event_service = EventService(db)
     event_data = event_in.dict()
     event_data["created_by"] = current_user.id
-    return await event_service.create(event_data)
+    return event_service.create(event_data)
 
 @router.get("", response_model=List[Event])
-async def read_events(
+def read_events(
     skip: int = 0,
     limit: int = 100,
     filter: Optional[EventFilter] = None,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)
 ) -> Any:
     """
     Retrieve events with optional filtering
@@ -45,7 +46,7 @@ async def read_events(
     if not current_user.is_superuser:
         filter_dict["created_by"] = current_user.id
     
-    return await event_service.get_multi(
+    return event_service.get_multi(
         skip=skip, 
         limit=limit,
         filters=filter_dict

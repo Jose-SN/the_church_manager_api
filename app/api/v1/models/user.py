@@ -1,14 +1,25 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from datetime import datetime
 from typing import Optional, List
 from enum import Enum
 from bson import ObjectId
 from pydantic_settings import BaseSettings
 
-class UserRole(str, Enum):
-    ADMIN = "admin"
-    USER = "user"
-    GUEST = "guest"
+
+class Role(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
+    id: Optional[ObjectId] = Field(default=None, alias='_id')
+    name: str
+    description: Optional[str] = None
+    permissions: List[ObjectId] = Field(default_factory=list) # Assuming permissions are ObjectIds of Permission documents
+
+class Permission(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
+    id: Optional[ObjectId] = Field(default=None, alias='_id')
+    name: str
+    description: Optional[str] = None
+    # roles: List[ObjectId] = Field(default_factory=list) # If Permission tracks roles, uncomment and use ObjectId
+
 
 class ObjectIdStr(str):
     @classmethod
@@ -22,10 +33,12 @@ class ObjectIdStr(str):
         return str(v)
 
 class UserBase(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
     email: EmailStr
     firstName: str = Field(..., min_length=1)
     lastName: str = Field(..., min_length=1)
-    role: UserRole = UserRole.USER
+    roles: List[ObjectId] = Field(default_factory=list)
+    is_superuser: bool = Field(default=False)
     approved: bool = False
     is_active: bool = True
     profileImage: Optional[str] = None

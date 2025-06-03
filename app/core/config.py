@@ -1,6 +1,6 @@
 import os
 from typing import List, Optional, Union
-from pydantic import AnyHttpUrl, validator, PostgresDsn
+from pydantic import AnyHttpUrl, validator
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -25,9 +25,10 @@ class Settings(BaseSettings):
             return v
         raise ValueError(v)
     
-    # Database
-    DATABASE_URL: str
-    TEST_DATABASE_URL: Optional[str] = None
+    # MongoDB
+    MONGO_URI: str = "mongodb://localhost:27017/"
+    DATABASE_NAME: str = "the_church_manager"
+    TEST_DATABASE_NAME: Optional[str] = None
     
     # JWT
     SECRET_KEY: str
@@ -50,7 +51,7 @@ class Settings(BaseSettings):
     # File Uploads
     UPLOAD_FOLDER: str = "uploads"
     MAX_CONTENT_LENGTH: int = 16 * 1024 * 1024  # 16MB
-    ALLOWED_EXTENSIONS: set = {"txt", "pdf", "png", "jpg", "jpeg", "gif"}
+    # ALLOWED_EXTENSIONS: set = {"txt", "pdf", "png", "jpg", "jpeg", "gif"}
     
     # Security
     SECURITY_BCRYPT_ROUNDS: int = 12
@@ -58,12 +59,8 @@ class Settings(BaseSettings):
     # Testing
     TESTING: bool = False
     
-    @property
-    def DATABASE_URL_ASYNC(self) -> str:
-        """Get the async database URL."""
-        if self.TESTING and self.TEST_DATABASE_URL:
-            return self.TEST_DATABASE_URL
-        return self.DATABASE_URL
+    # Logging
+    LOG_LEVEL: str = "INFO"
     
     class Config:
         case_sensitive = True

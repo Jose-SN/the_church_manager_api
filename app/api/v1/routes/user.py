@@ -4,7 +4,8 @@ from typing import Any, List, Optional, Dict
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi.responses import JSONResponse
-from sqlalchemy.ext.asyncio import AsyncSession
+from pymongo.database import Database
+from bson import ObjectId
 from pydantic import BaseModel, EmailStr
 
 from app.core.config import settings
@@ -42,9 +43,9 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login
 router = APIRouter(prefix="", tags=["Users & Authentication"])
 
 @router.post("/auth/login", response_model=dict)
-async def login(
+def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)
 ) -> Any:
     """
     OAuth2 compatible token login, get an access token for future requests
@@ -52,7 +53,7 @@ async def login(
     user_service = UserService(db)
     
     # Authenticate user
-    user = await user_service.authenticate(
+    user = user_service.authenticate(
         email=form_data.username, 
         password=form_data.password
     )
@@ -106,9 +107,9 @@ async def login(
     }
 
 @router.post("/auth/register", response_model=UserInDB, status_code=status.HTTP_201_CREATED)
-async def register(
+def register(
     user_in: UserRegister,
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)
 ) -> Any:
     """
     Register a new user
@@ -116,7 +117,7 @@ async def register(
     user_service = UserService(db)
     
     # Check if user with this email already exists
-    existing_user = await user_service.get_by_email(user_in.email)
+    existing_user = user_service.get_by_email(user_in.email)
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -131,13 +132,13 @@ async def register(
         "is_superuser": False
     })
     
-    user = await user_service.create(user_data)
+    user = user_service.create(user_data)
     return user
 
 @router.post("/auth/refresh-token", response_model=dict)
-async def refresh_token(
+def refresh_token(
     token: str = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)  # Changed to pymongo Database
 ) -> Any:
     """
     Refresh access token using refresh token
@@ -160,29 +161,29 @@ async def read_user_me(
     return current_user
 
 @router.patch("/me", response_model=UserInDB)
-async def update_user_me(
+def update_user_me(
     *,
     user_in: UserUpdate,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)  # Changed to pymongo Database
 ) -> Any:
     """
     Update own user
     """
     user_service = UserService(db)
-    user = await user_service.update(
-        user_id=current_user.id,
+    user = user_service.update(
+        user_id=str(current_user.id),  # Ensure user_id is string
         user_in=user_in,
         current_user=current_user
     )
     return user
 
 @router.post("", response_model=UserInDB, status_code=status.HTTP_201_CREATED)
-async def create_user(
+def create_user(
     *,
     user_in: UserCreate,
     current_user: UserInDB = Depends(get_current_active_admin),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)  # Changed to pymongo Database
 ) -> Any:
     """
     Create new user
@@ -190,7 +191,7 @@ async def create_user(
     user_service = UserService(db)
     
     # Check if user with this email already exists
-    user = await user_service.get_by_email(email=user_in.email)
+    user = user_service.get_by_email(email=user_in.email)  # Removed await
     if user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -204,25 +205,25 @@ async def create_user(
             detail="Not enough permissions to create admin user",
         )
     
-    user = await user_service.create(user_in=user_in)
+    user = user_service.create(user_in=user_in)  # Removed await
     return user
 
 @router.get("", response_model=List[UserInDB])
-async def read_users(
+def read_users(
     skip: int = 0,
     limit: int = 100,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)  # Changed to pymongo Database
 ) -> Any:
     """
     Retrieve users
     """
     user_service = UserService(db)
     if current_user.is_superuser:
-        users = await user_service.get_multi(skip=skip, limit=limit)
+        users = user_service.get_multi(skip=skip, limit=limit)  # Removed await
     else:
         # Regular users can only see active users
-        users = await user_service.get_multi(
+        users = user_service.get_multi(  # Removed await
             skip=skip, 
             limit=limit,
             filters={"is_active": True}
@@ -230,16 +231,16 @@ async def read_users(
     return users
 
 @router.get("/{user_id}", response_model=UserInDB)
-async def read_user(
-    user_id: int,
+def read_user(
+    user_id: str,  # Changed to str for ObjectId
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)  # Changed to pymongo Database
 ) -> Any:
     """
     Get a specific user by id
     """
     user_service = UserService(db)
-    user = await user_service.get(user_id)
+    user = user_service.get(user_id)  # Removed await
     
     if not user:
         raise HTTPException(
@@ -248,7 +249,7 @@ async def read_user(
         )
     
     # Regular users can only see their own profile or active users
-    if not current_user.is_superuser and user_id != current_user.id and not user.is_active:
+    if not current_user.is_superuser and user_id != str(current_user.id) and not user.is_active:  # Ensure string comparison
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
@@ -257,12 +258,12 @@ async def read_user(
     return user
 
 @router.put("/{user_id}", response_model=UserInDB)
-async def update_user(
+def update_user(
     *,
-    user_id: int,
+    user_id: str,  # Changed to str for ObjectId
     user_in: UserUpdate,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)  # Changed to pymongo Database
 ) -> Any:
     """
     Update a user
@@ -270,7 +271,7 @@ async def update_user(
     user_service = UserService(db)
     
     # Check if user exists
-    user = await user_service.get(user_id)
+    user = user_service.get(user_id)  # Removed await
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -278,7 +279,7 @@ async def update_user(
         )
     
     # Only allow users to update their own account or admin users
-    if user_id != current_user.id and not current_user.is_superuser:
+    if user_id != str(current_user.id) and not current_user.is_superuser:  # Ensure string comparison
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
@@ -293,21 +294,21 @@ async def update_user(
     
     # Prevent removing the last superuser status
     if user_in.is_superuser is False and user.is_superuser:
-        total_superusers = await user_service.count_superusers()
+        total_superusers = user_service.count_superusers()  # Removed await
         if total_superusers <= 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot remove the last superuser"
             )
     
-    updated_user = await user_service.update(user_id, user_in)
+    updated_user = user_service.update(user_id, user_in)  # Removed await
     return updated_user
 
 @router.delete("/{user_id}", response_model=UserInDB)
-async def delete_user(
-    user_id: int,
+def delete_user(
+    user_id: str,  # Changed to str for ObjectId
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)  # Changed to pymongo Database
 ) -> Any:
     """
     Delete a user
@@ -319,7 +320,7 @@ async def delete_user(
         )
     
     user_service = UserService(db)
-    user = await user_service.get(user_id)
+    user = user_service.get(user_id)  # Removed await
     
     if not user:
         raise HTTPException(
@@ -328,7 +329,7 @@ async def delete_user(
         )
     
     # Prevent deleting own account
-    if user_id == current_user.id:
+    if user_id == str(current_user.id):  # Ensure string comparison
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete your own account"
@@ -336,28 +337,28 @@ async def delete_user(
     
     # Prevent deleting the last superuser
     if user.is_superuser:
-        total_superusers = await user_service.count_superusers()
+        total_superusers = user_service.count_superusers()  # Removed await
         if total_superusers <= 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot delete the last superuser"
             )
     
-    await user_service.remove(user_id)
+    user_service.remove(user_id)  # Removed await
     return user
 
 @router.get("/not-attended/{event_id}", response_model=List[UserInDB])
-async def get_users_not_attended_event(
-    event_id: int,
+def get_users_not_attended_event(
+    event_id: str,  # Changed to str for ObjectId
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)  # Changed to pymongo Database
 ) -> Any:
     """
     Get users who did not attend a specific event
     """
     user_service = UserService(db)
     try:
-        users = await user_service.get_users_not_attended_event(event_id=event_id)
+        users = user_service.get_users_not_attended_event(event_id=event_id)  # Removed await
         return users
     except ValueError as e:
         raise HTTPException(
@@ -366,16 +367,16 @@ async def get_users_not_attended_event(
         )
 
 @router.post("/auth/forgot-password", status_code=status.HTTP_200_OK)
-async def forgot_password(
+def forgot_password(
     request: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)  # Changed to pymongo Database
 ) -> Dict[str, str]:
     """
     Initiate password reset by sending OTP to user's email
     """
     user_service = UserService(db)
-    result = await user_service.initiate_password_reset(request.email)
+    result = user_service.initiate_password_reset(request.email)  # Removed await
     
     if not result:
         # Don't reveal that user doesn't exist
@@ -397,10 +398,10 @@ async def forgot_password(
     }
 
 @router.post("/auth/reset-password", status_code=status.HTTP_200_OK)
-async def reset_password(
+def reset_password(
     request: ResetPasswordRequest,
     background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)  # Changed to pymongo Database
 ) -> Dict[str, str]:
     """
     Reset password using OTP
@@ -415,7 +416,7 @@ async def reset_password(
     user_service = UserService(db)
     
     # Get user by email to get the user_id
-    user = await user_service.get_user_by_email(request.email)
+    user = user_service.get_user_by_email(request.email)  # Removed await
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -423,7 +424,7 @@ async def reset_password(
         )
     
     # Reset password using OTP
-    success = await user_service.reset_password_with_otp(
+    success = user_service.reset_password_with_otp(  # Removed await
         user_id=str(user.id),
         otp=request.otp,
         new_password=request.new_password
@@ -444,10 +445,10 @@ async def reset_password(
     return {"message": "Password has been reset successfully"}
 
 @router.post("/auth/change-password", status_code=status.HTTP_200_OK)
-async def change_password(
+def change_password(
     request: ChangePasswordRequest,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)  # Changed to pymongo Database
 ) -> Dict[str, str]:
     """
     Change password for authenticated users
@@ -462,7 +463,7 @@ async def change_password(
     user_service = UserService(db)
     
     try:
-        success = await user_service.update_password(
+        success = user_service.update_password(  # Removed await
             user_id=str(current_user.id),
             current_password=request.current_password,
             new_password=request.new_password

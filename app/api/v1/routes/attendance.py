@@ -1,27 +1,90 @@
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
+from pymongo.database import Database
+from bson import ObjectId
 
 from app.schemas.attendance import (
     Attendance,
     AttendanceCreate,
     AttendanceUpdate,
     AttendanceStats,
-    AttendanceSummary
+    AttendanceSummary,
+    AttendanceSummaryItem,
+    BulkAttendanceCreate
 )
-from app.models.user import UserInDB
-from app.api.v1.services.attendance_service import AttendanceService
+from app.api.v1.models.user import UserInDB
+from app.services.attendance_service import AttendanceService
 from app.api.deps import get_db, get_current_active_user
+from app.core.logging import logger
 
-router = APIRouter(prefix="/attendance", tags=["Attendance"])
+router = APIRouter(prefix="/api/v1/attendance", tags=["attendance"])
+
+@router.post("/bulk", response_model=List[Attendance], status_code=status.HTTP_201_CREATED)
+def bulk_create_attendance(
+    bulk_data: BulkAttendanceCreate,
+    current_user: UserInDB = Depends(get_current_active_user),
+    db: Database = Depends(get_db)
+) -> Any:
+    """
+    Create multiple attendance records in bulk
+    """
+    attendance_service = AttendanceService(db)
+    
+    # Prepare attendance data
+    attendance_data_list = []
+    for item in bulk_data.items:
+        # Only admins can create attendance for other users
+        if item.user_id != current_user.id and not current_user.is_superuser:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Not enough permissions to create attendance for user {item.user_id}"
+            )
+        
+        # Check for duplicates
+        existing = attendance_service.get_attendance_by_user_and_parent(
+            user_id=item.user_id,
+            parent_id=bulk_data.parent_id,
+            parent_type=bulk_data.parent_type
+        )
+        
+        if existing:
+            logger.warning(f"Skipping duplicate attendance for user {item.user_id}")
+            continue
+        
+        # Prepare attendance data
+        attendance_data = item.dict()
+        attendance_data.update({
+            "parent_id": bulk_data.parent_id,
+            "parent_type": bulk_data.parent_type,
+            "submitted_by": current_user.id,
+            "organization_id": bulk_data.organization_id
+        })
+        attendance_data_list.append(attendance_data)
+    
+    if not attendance_data_list:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid attendance records to create"
+        )
+    
+    try:
+        # Use bulk create with transaction
+        result = attendance_service.bulk_create_attendance(attendance_data_list)
+        return result
+    except Exception as e:
+        logger.error(f"Error in bulk attendance creation: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error creating attendance records: {str(e)}"
+        )
 
 @router.post("", response_model=Attendance, status_code=status.HTTP_201_CREATED)
-async def create_attendance(
+def create_attendance(
     attendance_in: AttendanceCreate,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)
 ) -> Any:
     """
     Create a new attendance record
@@ -29,44 +92,48 @@ async def create_attendance(
     attendance_service = AttendanceService(db)
     
     # Check if attendance record already exists
-    existing = await attendance_service.get_attendance_by_user_and_event(
+    existing = attendance_service.get_attendance_by_user_and_parent(
         user_id=attendance_in.user_id,
-        event_id=attendance_in.event_id,
-        meeting_id=attendance_in.meeting_id
+        parent_id=attendance_in.parent_id,
+        parent_type=attendance_in.parent_type
     )
     
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Attendance record already exists"
+            detail="Attendance record already exists for this user and parent"
         )
     
-    # Only admins can create attendance for other users
-    if attendance_in.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
-        )
-    
+    # Prepare attendance data
     attendance_data = attendance_in.dict()
-    attendance_data["recorded_by"] = current_user.id
+    attendance_data["submitted_by"] = current_user.id
     
-    return await attendance_service.create(attendance_data)
+    try:
+        return attendance_service.create(attendance_data)
+    except Exception as e:
+        logger.error(f"Error creating attendance: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 @router.get("", response_model=List[Attendance])
-async def get_attendance(
+def list_attendance(
     user_id: Optional[str] = None,
-    event_id: Optional[str] = None,
-    meeting_id: Optional[str] = None,
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
+    parent_id: Optional[str] = None,
+    parent_type: Optional[str] = None,
+    status: Optional[str] = None,
+    question_id: Optional[str] = None,
+    submitted_by: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
     skip: int = 0,
     limit: int = 100,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-) -> List[Attendance]:
+    db: Database = Depends(get_db)
+) -> Any:
     """
-    Get attendance records with filtering options
+    List attendance records with filtering options
     """
     attendance_service = AttendanceService(db)
     
@@ -74,48 +141,93 @@ async def get_attendance(
     if user_id and user_id != str(current_user.id) and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions"
+            detail="Not enough permissions to view other users' attendance"
         )
     
     # If no user_id is provided and user is not admin, only show their records
     if not user_id and not current_user.is_superuser:
         user_id = str(current_user.id)
     
-    return await attendance_service.get_attendance(
-        user_id=user_id,
-        event_id=event_id,
-        meeting_id=meeting_id,
-        start_date=start_date,
-        end_date=end_date,
-        skip=skip,
-        limit=limit
-    )
+    # Validate parent_type if provided
+    if parent_type and parent_type not in ['event', 'meeting']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid parent_type. Must be 'event' or 'meeting'"
+        )
+    
+    # Validate status if provided
+    if status and status not in [s.value for s in AttendanceStatus]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid status. Must be one of: present, absent, late, excused"
+        )
+    
+    # Prepare filters
+    filters = {}
+    if user_id:
+        filters["user_id"] = user_id
+    if parent_id:
+        filters["parent_id"] = parent_id
+    if parent_type:
+        filters["parent_type"] = parent_type
+    if status:
+        filters["status"] = status
+    if question_id:
+        filters["question_id"] = question_id
+    if submitted_by:
+        filters["submitted_by"] = submitted_by
+    if start_date:
+        filters["created_at"] = {"$gte": start_date}
+    if end_date:
+        filters["created_at"] = {"$lte": end_date}
+    
+    try:
+        return attendance_service.get_multi(
+            skip=skip,
+            limit=limit,
+            filters=filters
+        )
+    except Exception as e:
+        logger.error(f"Error listing attendance: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
-@router.get("/event/{event_id}", response_model=List[Attendance])
-async def get_attendance_for_event(
-    event_id: str,
-    skip: int = 0,
-    limit: int = 100,
+@router.get("/{attendance_id}", response_model=Attendance)
+def get_attendance(
+    attendance_id: str,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-) -> List[Attendance]:
+    db: Database = Depends(get_db)
+) -> Any:
     """
-    Get attendance records for a specific event
+    Get a specific attendance record
     """
     attendance_service = AttendanceService(db)
-    return await attendance_service.get_attendance(
-        event_id=event_id,
-        skip=skip,
-        limit=limit
-    )
+    attendance = attendance_service.get_attendance_by_id(attendance_id)
+    
+    if not attendance:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Attendance record not found"
+        )
+    
+    # Only admins or the user who submitted the attendance can view it
+    if attendance.submitted_by != str(current_user.id) and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions"
+        )
+    
+    return attendance
 
 @router.get("/user/{user_id}", response_model=List[Attendance])
-async def get_attendance_for_user(
+def get_attendance_for_user(
     user_id: str,
     skip: int = 0,
     limit: int = 100,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)
 ) -> List[Attendance]:
     """
     Get attendance records for a specific user
@@ -128,24 +240,24 @@ async def get_attendance_for_user(
         )
     
     attendance_service = AttendanceService(db)
-    return await attendance_service.get_attendance(
+    return attendance_service.get_attendance(
         user_id=user_id,
         skip=skip,
         limit=limit
     )
 
 @router.put("/{attendance_id}", response_model=Attendance)
-async def update_attendance(
+def update_attendance(
     attendance_id: str,
     attendance_in: AttendanceUpdate,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-) -> Attendance:
+    db: Database = Depends(get_db)
+) -> Any:
     """
     Update an attendance record
     """
     attendance_service = AttendanceService(db)
-    attendance = await attendance_service.get_attendance_by_id(attendance_id)
+    attendance = attendance_service.get_attendance_by_id(attendance_id)
     
     if not attendance:
         raise HTTPException(
@@ -153,86 +265,223 @@ async def update_attendance(
             detail="Attendance record not found"
         )
     
-    # Only allow updates by admins or the user who created the record
-    if attendance.recorded_by != current_user.id and not current_user.is_superuser:
+    # Only admins or the user who submitted the attendance can update it
+    if attendance.submitted_by != str(current_user.id) and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
         )
     
-    return await attendance_service.update(
-        attendance_id=attendance_id,
-        attendance_update=attendance_in
-    )
+    try:
+        return attendance_service.update_attendance(attendance_id, attendance_in)
+        
+        return await attendance_service.update(attendance_id, update_data)
+    except Exception as e:
+        logger.error(f"Error updating attendance {attendance_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 @router.delete("/{attendance_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_attendance(
+def delete_attendance(
     attendance_id: str,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: Database = Depends(get_db)
 ) -> None:
     """
     Delete an attendance record
     """
     attendance_service = AttendanceService(db)
-    attendance = await attendance_service.get_attendance_by_id(attendance_id)
     
+    # Get the existing attendance record
+    attendance = attendance_service.get_attendance_by_id(attendance_id)
     if not attendance:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Attendance record not found"
         )
     
-    # Only allow deletes by admins or the user who created the record
-    if attendance.recorded_by != current_user.id and not current_user.is_superuser:
+    # Only admins or the user who submitted the attendance can delete it
+    if attendance.submitted_by != str(current_user.id) and not current_user.is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
         )
     
-    await attendance_service.delete(attendance_id=attendance_id)
+    try:
+        attendance_service.delete_attendance(attendance_id)
+    except Exception as e:
+        logger.error(f"Error deleting attendance: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    
     return None
 
-@router.get("/stats/event/{event_id}", response_model=AttendanceStats)
-async def get_event_attendance_stats(
-    event_id: str,
+@router.get("/stats", response_model=AttendanceStats)
+def get_attendance_stats(
+    parent_id: Optional[str] = None,
+    parent_type: Optional[str] = None,
+    user_id: Optional[str] = None,  # Changed to str for ObjectId
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    question_id: Optional[str] = None,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-) -> AttendanceStats:
+    db: Database = Depends(get_db)  # Changed to pymongo Database
+) -> Any:
     """
-    Get attendance statistics for an event
+    Get attendance statistics with optional filters
     """
+    # Regular users can only see their own stats unless they're admins
+    if user_id and user_id != current_user.id and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions to view other users' statistics"
+        )
+    
+    # If no user_id is provided and user is not admin, only show their stats
+    if not user_id and not current_user.is_superuser:
+        user_id = str(current_user.id) # Ensure user_id is string for comparison
+    
+    # Validate parent_type if provided
+    if parent_type and parent_type not in ['event', 'meeting']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="parent_type must be either 'event' or 'meeting'"
+        )
+    
     attendance_service = AttendanceService(db)
-    return await attendance_service.get_attendance_stats(event_id=event_id)
+    
+    try:
+        return attendance_service.get_attendance_stats(
+            parent_id=parent_id,
+            parent_type=parent_type,
+            user_id=user_id,
+            start_date=start_date,
+            end_date=end_date,
+            question_id=question_id
+        )
+    except Exception as e:
+        logger.error(f"Error getting attendance stats: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
-@router.get("/stats/summary", response_model=List[AttendanceSummary])
-async def get_attendance_summary(
-    organization_id: str,
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
+@router.get("/summary", response_model=List[AttendanceSummaryItem])
+def get_attendance_summary(
+    organization_id: str,  # Changed to str for ObjectId
+    start_date: datetime,
+    end_date: datetime,
     period: str = Query("daily", enum=["daily", "weekly", "monthly"]),
+    parent_type: Optional[str] = None,
+    user_id: Optional[str] = None,  # Changed to str for ObjectId
+    question_id: Optional[str] = None,
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-) -> List[AttendanceSummary]:
+    db: Database = Depends(get_db)  # Changed to pymongo Database
+) -> Any:
     """
-    Get attendance summary by period (daily, weekly, or monthly)
+    Get attendance summary aggregated by period (daily, weekly, or monthly)
+    
+    Args:
+        organization_id: ID of the organization
+        start_date: Start date for the summary
+        end_date: End date for the summary
+        period: Time period for grouping ('daily', 'weekly', 'monthly')
+        parent_type: Optional filter by parent type ('event' or 'meeting')
+        user_id: Optional filter by user ID
+        question_id: Optional filter by question ID
+        
+    Returns:
+        List of attendance summary items
     """
+    # Regular users can only see their own summaries unless they're admins
+    if user_id and user_id != current_user.id and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions to view other users' summaries"
+        )
+    
+    # If no user_id is provided and user is not admin, only show their summaries
+    if not user_id and not current_user.is_superuser:
+        user_id = str(current_user.id) # Ensure user_id is string
+    
+    # Validate parent_type if provided
+    if parent_type and parent_type not in ['event', 'meeting']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="parent_type must be either 'event' or 'meeting'"
+        )
+    
     attendance_service = AttendanceService(db)
-    return await attendance_service.get_attendance_summary(
-        organization_id=organization_id,
-        start_date=start_date,
-        end_date=end_date,
-        period=period
-    )
+    
+    try:
+        return attendance_service.get_attendance_summary(
+            organization_id=organization_id,
+            start_date=start_date,
+            end_date=end_date,
+            period=period,
+            parent_type=parent_type,
+            user_id=user_id,
+            question_id=question_id
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error getting attendance summary: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while generating the attendance summary"
+        )
 
-@router.get("/not-attended/event/{event_id}", response_model=List[UserInDB])
-async def get_not_attended_users(
-    event_id: str,
+@router.get("/not-attended/{parent_type}/{parent_id}", response_model=List[str])  # Changed response_model to List[str]
+def get_not_attended_users(
+    parent_id: str,
+    parent_type: str,
+    user_ids: List[str] = Query([], description="List of user IDs to check"),  # Changed to List[str]
+    status: str = "absent",
     current_user: UserInDB = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
-) -> List[UserInDB]:
+    db: Database = Depends(get_db)  # Changed to pymongo Database
+) -> Any:
     """
-    Get users who did not attend a specific event
+    Get list of user IDs who did not attend a specific event/meeting
+    
+    Args:
+        parent_id: ID of the parent (event or meeting)
+        parent_type: Type of the parent ('event' or 'meeting')
+        user_ids: List of user IDs to check (if empty, checks all users)
+        status: Status to check for (default: 'absent')
+        
+    Returns:
+        List of user IDs who did not attend
     """
+    # Validate parent_type
+    if parent_type not in ['event', 'meeting']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="parent_type must be either 'event' or 'meeting'"
+        )
+    
+    # If user_ids is empty and user is not admin, only check their own attendance
+    if not user_ids and not current_user.is_superuser:
+        user_ids = [str(current_user.id)]  # Ensure user_id is string
+    
     attendance_service = AttendanceService(db)
-    return await attendance_service.get_not_attended_users(event_id=event_id)
+    
+    try:
+        return attendance_service.get_non_attended_users(
+            parent_id=parent_id,
+            parent_type=parent_type,
+            user_ids=user_ids
+        )
+    except Exception as e:
+        logger.error(f"Error getting not attended users: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )

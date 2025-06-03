@@ -4,12 +4,19 @@ from typing import Optional, List
 from bson import ObjectId
 from pydantic_settings import BaseSettings
 
+class AttendanceStatus(str):
+    PRESENT = 'present'
+    ABSENT = 'absent'
+    LATE = 'late'
+    EXCUSED = 'excused'
+
+
 class AttendanceBase(BaseModel):
     userId: str = Field(..., min_length=1)
     eventId: Optional[str] = None
     meetingId: Optional[str] = None
     date: datetime
-    status: str
+    status: AttendanceStatus
     notes: Optional[str] = None
     organizationId: str
     type: str  # event or meeting
@@ -22,7 +29,7 @@ class AttendanceUpdate(BaseModel):
     eventId: Optional[str] = None
     meetingId: Optional[str] = None
     date: Optional[datetime] = None
-    status: Optional[str] = None
+    status: Optional[AttendanceStatus] = None
     notes: Optional[str] = None
     organizationId: Optional[str] = None
     type: Optional[str] = None

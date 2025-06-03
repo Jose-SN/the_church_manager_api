@@ -1,12 +1,14 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy.ext.declarative import as_declared_api, declared_attr
+from sqlalchemy.ext.declarative import declarative_base, declared_attr
 from sqlalchemy import Column, Integer, DateTime
 
-class Base:
+Base = declarative_base()
+
+class BaseModel(Base):
     """Base class for all database models"""
-    __name__: str
+    __abstract__ = True
     
     # Generate __tablename__ automatically
     @declared_attr

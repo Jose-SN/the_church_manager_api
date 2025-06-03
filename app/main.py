@@ -1,10 +1,4 @@
 from fastapi import FastAPI, Request
-from app.api.v1.routes.attendance import router as attendance_router
-from app.api.v1.routes.health import router as health_router
-from app.api.v1.routes.user import router as user_router
-from app.api.v1.routes.organization import router as organization_router
-from app.api.v1.routes.dashboard import router as dashboard_router
-from app.api.v1.routes.analytics import router as analytics_router
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -12,8 +6,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.logger import logger
-from motor.motor_asyncio import AsyncIOMotorClient
-from typing import Optional
 import uvicorn
 import logging
 import json

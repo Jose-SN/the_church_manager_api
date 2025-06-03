@@ -1,15 +1,14 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import (
-    user, 
-    health, 
-    status, 
-    attendance, 
-    event, 
-    organization, 
-    dashboard,
+from app.api.v1.routes import (
     auth,
-    users as users_endpoint
+    health,
+    status,
+    attendance,
+    event,
+    organization,
+    dashboard,
+    user,
 )
 
 api_router = APIRouter()
@@ -19,7 +18,7 @@ api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 
 # User management
-api_router.include_router(users_endpoint.router, prefix="/users", tags=["users"])
+api_router.include_router(user.router, prefix="/users", tags=["users"])
 
 # Other endpoints
 api_router.include_router(health.router, prefix="/health", tags=["health"])
@@ -31,7 +30,7 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboar
 
 # Add root endpoint
 @api_router.get("/")
-async def root():
+def root():
     """
     Root endpoint that returns API information
     """

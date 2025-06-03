@@ -73,16 +73,16 @@ class EmailService:
         """
         subject = "Your Password Reset OTP"
         html_content = f"""
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">
             <h2>Password Reset Request</h2>
             <p>You have requested to reset your password. Please use the following OTP to proceed:</p>
-            <div style="background-color: #f5f5f5; padding: 15px; margin: 20px 0; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 2px;">
+            <div style=\"background-color: #f5f5f5; padding: 15px; margin: 20px 0; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 2px;\">
                 {otp}
             </div>
             <p>This OTP is valid for 15 minutes.</p>
             <p>If you didn't request this, please ignore this email or contact support if you have any concerns.</p>
             <hr>
-            <p style="font-size: 12px; color: #666;">
+            <p style=\"font-size: 12px; color: #666;\">
                 This is an automated message, please do not reply directly to this email.
             </p>
         </div>
@@ -96,12 +96,12 @@ class EmailService:
         """
         subject = "Password Reset Successful"
         html_content = """
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style=\"font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;\">
             <h2>Password Reset Successful</h2>
             <p>Your password has been successfully reset.</p>
             <p>If you didn't make this change or believe an unauthorized person has accessed your account, please contact our support team immediately.</p>
             <hr>
-            <p style="font-size: 12px; color: #666;">
+            <p style=\"font-size: 12px; color: #666;\">
                 This is an automated message, please do not reply directly to this email.
             </p>
         </div>
