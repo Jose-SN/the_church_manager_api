@@ -1,7 +1,7 @@
 from typing import Optional
 from datetime import datetime
 from pydantic import BaseModel, Field, HttpUrl, EmailStr
-from app.models.pyobjectid import PyObjectId
+from app.api.v1.models.pyobjectid import PyObjectId
 
 class OrganizationInDB(BaseModel):
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
