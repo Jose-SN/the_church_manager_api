@@ -5,8 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import get_current_active_user
 from app.db.session import get_db
-from app.models.user import User as UserModel
-from app.schemas.user import User, UserCreate, UserUpdate, UserInDB
+from app.api.v1.models.user import User as UserModel
+from app.api.v1.schemas.user import User, UserCreate, UserUpdate, UserInDB
 from app.services.user_service import UserService
 
 router = APIRouter()
