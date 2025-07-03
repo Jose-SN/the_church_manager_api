@@ -1,54 +1,47 @@
-from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
+from pydantic import BaseModel, Field
 from bson import ObjectId
-from pydantic_settings import BaseSettings
 
-class MeetingBase(BaseModel):
-    title: str = Field(..., min_length=1)
-    description: Optional[str] = None
-    startDate: datetime
-    endDate: datetime
+class PyObjectId(ObjectId):
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, v):
+        if not ObjectId.is_valid(v):
+            raise ValueError("Invalid ObjectId")
+        return ObjectId(v)
+
+    @classmethod
+    def __modify_schema__(cls, field_schema):
+        field_schema.update(type="string")
+
+class MeetingDB(BaseModel):
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    title: str
+    date: str
+    speechBy: Optional[str] = None
     location: str
-    type: str
-    organizationId: str
-    attendees: List[str] = []
-    image: Optional[str] = None
-    status: str = "scheduled"
-    notes: Optional[str] = None
+    language: Optional[str] = None
+    videoURL: str
+    submittedBy: Optional[PyObjectId] = None
+    creation_date: datetime = Field(default_factory=datetime.utcnow)
+    modification_date: datetime = Field(default_factory=datetime.utcnow)
 
-class MeetingCreate(MeetingBase):
-    pass
-
-class MeetingUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    startDate: Optional[datetime] = None
-    endDate: Optional[datetime] = None
-    location: Optional[str] = None
-    type: Optional[str] = None
-    organizationId: Optional[str] = None
-    attendees: Optional[List[str]] = None
-    image: Optional[str] = None
-    status: Optional[str] = None
-    notes: Optional[str] = None
-
-class MeetingInDB(MeetingBase):
-    id: str
-    created_at: datetime
-    updated_at: datetime
-
-class MeetingAttendee(BaseModel):
-    userId: str
-    firstName: str
-    lastName: str
-    email: str
-    status: str
-    notes: Optional[str] = None
-
-class MeetingAttendance(BaseModel):
-    meetingId: str
-    userId: str
-    date: datetime
-    status: str
-    notes: Optional[str] = None
+    class Config:
+        allow_population_by_field_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+        schema_extra = {
+            "example": {
+                "title": "Sunday Service",
+                "date": "2023-06-11T10:00:00",
+                "speechBy": "Pastor John",
+                "location": "Main Hall",
+                "language": "English",
+                "videoURL": "https://example.com/video123",
+                "submittedBy": "507f1f77bcf86cd799439011"
+            }
+        }
