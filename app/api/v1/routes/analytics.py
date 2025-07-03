@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from app.core.security import get_current_active_user
-from app.models.user import UserInDB
+from app.api.v1.models.user import UserInDB
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 from bson import ObjectId
