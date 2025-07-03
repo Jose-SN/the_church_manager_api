@@ -2,10 +2,10 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
-from pymongo.database import Database
+from pymongo.synchronous.database import Database
 from bson import ObjectId
 
-from app.schemas.attendance import (
+from app.api.v1.schemas.attendance import (
     Attendance,
     AttendanceCreate,
     AttendanceUpdate,
