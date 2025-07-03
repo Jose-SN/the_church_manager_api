@@ -1,17 +1,15 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Literal
 from bson import ObjectId
 from pydantic_settings import BaseSettings
 
-class AttendanceStatus(str):
-    PRESENT = 'present'
-    ABSENT = 'absent'
-    LATE = 'late'
-    EXCUSED = 'excused'
-
+# Define the allowed status values as a type
+AttendanceStatus = Literal['present', 'absent', 'late', 'excused']
 
 class AttendanceBase(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
     userId: str = Field(..., min_length=1)
     eventId: Optional[str] = None
     meetingId: Optional[str] = None
