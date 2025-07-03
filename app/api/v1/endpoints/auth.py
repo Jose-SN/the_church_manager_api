@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.db.session import get_db
-from app.schemas.token import Token
-from app.schemas.user import UserCreate, UserInDB, UserResponse
+from app.api.v1.schemas.token import Token
+from app.api.v1.schemas.user import UserCreate, UserInDB, UserResponse
 from app.services.auth_service import (
     authenticate_user,
     get_current_active_user,
