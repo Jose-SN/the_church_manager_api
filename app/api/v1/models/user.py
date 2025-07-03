@@ -5,6 +5,13 @@ from enum import Enum
 from bson import ObjectId
 from pydantic_settings import BaseSettings
 
+class UserRole(Enum):
+    ADMIN = 'ADMIN'
+    VOLUNTEER = 'VOLUNTEER'
+    ACCOUNTANT = 'ACCOUNTANT'
+    MEDIA = 'MEDIA'
+    ITSUPPORT = 'ITSUPPORT'
+    
 
 class Role(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
@@ -83,6 +90,10 @@ class TokenData(BaseModel):
     email: Optional[str] = None
     role: Optional[str] = None
     approved: Optional[bool] = None
+
+class UserCreate(UserBase):
+    password: str = Field(..., min_length=8)
+    passwordConfirm: str = Field(..., min_length=8)
 
 # Initialize BaseSettings to ensure environment variables are loaded
 _ = BaseSettings()
