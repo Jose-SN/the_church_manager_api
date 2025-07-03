@@ -3,8 +3,8 @@ from typing import Optional, List
 from bson import ObjectId
 from pydantic import BaseModel, Field
 
-from app.models.user import User
-from app.models.attendance import Attendance
+from app.api.v1.models.user import User
+from app.api.v1.models.attendance import Attendance
 
 class Event(BaseModel):
     id: Optional[ObjectId] = Field(alias='_id', default=None)
